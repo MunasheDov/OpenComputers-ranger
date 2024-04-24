@@ -11,7 +11,7 @@ local gpu = term.gpu()
 
 local backbuffer
 
-local helpstring = "[m]ake, [r]ename, [y/p] yank/paste, [e]dit, run [a]rgs, home [/], [g]oto, [s]hell"
+local helpstring = "[n]ew, [r]ename, [y/p] yank/paste, [e]dit, run [a]rgs, home [/], [g]oto, [s]hell"
 
 local config = {
 	outlines = true,
@@ -20,7 +20,7 @@ local config = {
 	scrollSpeed = 8,
 }
 
-function getLogger(filename, tag)
+local function getLogger(filename, tag)
 	logfile, err = io.open(filename, "w")
 	if err then
 		error(err)
@@ -28,7 +28,7 @@ function getLogger(filename, tag)
 	if tag then tag = tag.." " else tag = "" end
 	return function(...)
 		logfile:write(tag)
-		for i,v in ipairs({...}) do
+		for _,v in ipairs({...}) do
 			logfile:write(tostring(v))
 		end
 		logfile:write("\n")
@@ -37,7 +37,7 @@ function getLogger(filename, tag)
 end
 
 local log = getLogger("/home/log", "[ranger]")
-if not config.logging then log = function(...) return end end
+if not config.logging then log = function(...) end end
 
 logvar = function(k, v)
 	log(string.format("%s: %s: %s", debug.getinfo(3).name or "anonymous", k, serialize(v)))
@@ -52,7 +52,7 @@ function table.indexOf(t, object)
     end
 end
 
-function clamp(low, val, high)
+local function clamp(low, val, high)
 	if val < low then return low end
 	if val > high then return high end
 	return val
@@ -100,7 +100,7 @@ local function getFiletypeColor(filename)
 	end
 end
 
-function fitStringToWidth(width, filename)
+local function fitStringToWidth(width, filename)
 	assert(width > 0, string.format("%s: width must be a natural number, not %d", debug.traceback(), width))
 	local space = width - #filename
 	if space < 0 then
@@ -142,7 +142,7 @@ local function clearInfoText()
 	end
 end
 
-function drawFilenameIndexed(column, index, inverted)
+local function drawFilenameIndexed(column, index, inverted)
 	if type(index) ~= "number" then error(debug.traceback().." non-number index passed to drawFilenameIndexed for column "..table.indexOf(col, column)) end
 	local filename = column.rows[index]
 	local y = top + index - (column.scrollY or 0)
@@ -164,13 +164,30 @@ function drawFilenameIndexed(column, index, inverted)
 	gpu.setForeground(color.plain, false)
 end
 
-function drawFilename(column, filename, inverted)
+local function drawFilename(column, filename, inverted)
 	local index = table.indexOf(column.rows, filename)
 	if not index then error(debug.traceback() .. string.format(" failed to find '%s' in column %s (%d)", filename, table.indexOf(col, column), #column.rows)) end
 	drawFilenameIndexed(column, index, inverted)
 end
 
-function drawPreview()
+local function drawColumn(column)
+	local prevColor
+	local x,y = column.x, top+1
+	local index = column.scrollY
+	local rows = column.rows
+	gpu.fill(column.x,y, column.iw-2, bottom-top-1, " ")
+	local itemCount = math.min(#rows-column.scrollY, bottom-top-1)
+	for i=1,itemCount do
+		local filename = rows[index+i]
+		local nextColor = getFiletypeColor(filename)
+		if nextColor ~= prevColor then gpu.setForeground(nextColor, false) end
+		filename = fitStringToWidth(column.iw-2, " "..filename)
+		gpu.set(x, y, filename)
+		y = y + 1
+	end
+end
+
+local function drawPreview()
 	local previewHeight = bottom - top - 1
 	col.right.rows = {}
 	if not selectedFile then error("selectedFile is nil in drawPreview()") end
@@ -199,9 +216,7 @@ function drawPreview()
 	end
 end
 
-
-
-function moveLeft()
+local function moveLeft()
 	local cwd = shell.getWorkingDirectory()
 	logvar("cwd", cwd)
 	if cwd == "/" then
@@ -242,7 +257,7 @@ function moveLeft()
 	return true
 end
 
-function moveRight()
+local function moveRight()
 	local cwd = shell.getWorkingDirectory()
 	local path = cwd.."/"..selectedFile
 	if not fs.isDirectory(path) then return end
@@ -263,7 +278,7 @@ function moveRight()
 	return true
 end
 
-function update()
+local function update()
 	local cwd = shell.getWorkingDirectory()
 	col.left.rows = {}
 	local leftpath = shell.resolve(cwd.."/..")
@@ -287,7 +302,27 @@ end
 gpu.clear = function() gpu.fill(1,1,w,h," ") end
 gpu.clearLine = function(ln) gpu.fill(1,ln,w,1," ") end
 
-function drawOutlines()
+local boxchar = {
+	vert = "│",
+	horz = "─",
+	t = "┬",
+	ti = "┴",
+	topleft = "┌",
+	topright = "┐",
+	botleft = "└",
+	botright = "┘",
+}
+
+local function drawBox(r)
+	local top = boxchar.topleft..string.rep(boxchar.horz, r.w-1)..boxchar.topright
+	local bot = boxchar.botleft..string.rep(boxchar.horz, r.w-1)..boxchar.botright
+	gpu.set(r.x, r.y+1, string.rep(boxchar.vert, r.h), true)
+	gpu.set(r.x+r.w, r.y+1, string.rep(boxchar.vert, r.h), true)
+	gpu.set(r.x, r.y, top)
+	gpu.set(r.x, r.y+r.h+1, bot)
+end
+
+local function drawOutlines()
 	local verticalLineChar = "│"
 	gpu.setForeground(color.border)
 	gpu.fill(col.left.iw-1, top+1, 1, bottom-top, verticalLineChar)
@@ -305,14 +340,14 @@ function drawOutlines()
 	gpu.set(1,bottom, bottomline)
 end
 
-function drawPath()
+local function drawPath()
 	gpu.clearLine(1)
 	gpu.setForeground(color.currentDirectory)
 	gpu.set(1,1, shell.getWorkingDirectory())
 	gpu.setForeground(color.plain)
 end
 
-function drawHelp()
+local function drawHelp()
 	local y = h
 	if #helpstring > w then y = y - 1 end
 	gpu.setForeground(color.border, false)
@@ -320,24 +355,7 @@ function drawHelp()
 	gpu.setForeground(color.plain, false)
 end
 
-function drawColumn(column)
-	local prevColor
-	local x,y = column.x, top+1
-	local index = column.scrollY
-	local rows = column.rows
-	gpu.fill(column.x,y, column.iw-2, bottom-top-1, " ")
-	local itemCount = math.min(#rows-column.scrollY, bottom-top-1)
-	for i=1,itemCount do
-		local filename = rows[index+i]
-		local nextColor = getFiletypeColor(filename)
-		if nextColor ~= prevColor then gpu.setForeground(nextColor, false) end
-		filename = fitStringToWidth(column.iw-2, " "..filename)
-		gpu.set(x, y, filename)
-		y = y + 1
-	end
-end
-
-function redraw()
+local function redraw()
 	drawColumn(col.left)
 	drawColumn(col.mid)
 
@@ -350,7 +368,7 @@ function redraw()
 	drawPreview()
 end
 
-function refresh()
+local function refresh()
 	update()
 	if config.outlines then
 		drawOutlines()
@@ -360,7 +378,7 @@ function refresh()
 	drawHelp()
 end
 
-function confirmation(query)
+local function confirmation(query)
 	setInfoText(query.." [Y/n]")
 	local id, _, character, code = event.pull("key_down")
 	local c = string.char(character)
@@ -371,7 +389,7 @@ function confirmation(query)
 	end
 end
 
-function moveCursor(delta)
+local function moveCursor(delta)
 	local previousCursorIndex = cursorIndex
 	cursorIndex = cursorIndex + delta
 	cursorIndex = clamp(1, cursorIndex, #col.mid.rows)
@@ -389,10 +407,43 @@ function moveCursor(delta)
 	drawPreview()
 end
 
+local function runMenu(r, m)
+	gpu.setForeground(color.plain)
+	drawBox(r)
+	local current = 1
+	while true do
+		for i,option in ipairs(m) do
+			local fitted = fitStringToWidth(r.w-1, option)
+			if current == i then
+				gpu.setForeground(color.bg)
+				gpu.setBackground(color.plain)
+				gpu.set(r.x+1, r.y+i, fitted)
+			else
+				gpu.setBackground(color.bg)
+				gpu.setForeground(color.plain)
+				gpu.set(r.x+1, r.y+i, fitted)
+			end
+		end
+		local id,addr,key,code = event.pullMultiple("interrupted", "key_down")
+		if id == "interrupted" then
+			return nil
+		else
+			local c = string.char(key)
+			if c == "k" then
+				if current > 1 then current = current - 1 end
+			elseif c == "j" then
+				if current < #m then current = current + 1 end
+			end
+			if code == keyboard.keys.enter then
+				return current
+			end
+		end
+	end
+end
+
 local screenBuffer = 0
 local function frameStash()
 	gpu.bitblt(backbuffer, 1,1,w,h, screenBuffer, 1,1)
-	gpu.clear()
 	term.setCursor(1,1)
 end
 local function frameRestore()
@@ -501,11 +552,11 @@ local function main()
 				if col.mid.scrollY > 0 then
 					col.mid.scrollY = 0
 					drawColumn(col.mid)
-					drawPreview(false)
+					drawPreview()
 				else
 					drawFilenameIndexed(col.mid, prvcursorIndex)
 					drawFilename(col.mid, selectedFile, true)
-					drawPreview(false)
+					drawPreview()
 				end
 			elseif code == keyboard.keys["end"] and cursorIndex ~= #col.mid.rows then
 				local prvcursorIndex = cursorIndex
@@ -514,11 +565,11 @@ local function main()
 				if #col.mid.rows >= bottom-top then
 					col.mid.scrollY = #col.mid.rows - (bottom-top-1)
 					drawColumn(col.mid)
-					drawPreview(false)
+					drawPreview()
 				else
 					drawFilenameIndexed(col.mid, prvcursorIndex)
 					drawFilename(col.mid, selectedFile, true)
-					drawPreview(false)
+					drawPreview()
 				end
 			elseif code == keyboard.keys.enter then
 				if fs.isDirectory(path) then
@@ -556,7 +607,7 @@ local function main()
 				frameStash()
 				shell.execute("edit "..path)
 				frameRestore()
-				drawPreview(true)
+				drawPreview()
 			elseif code == keyboard.keys.delete then
 				local warning
 				if fs.isDirectory(path) then
@@ -566,6 +617,7 @@ local function main()
 				end
 				if confirmation(string.format('%s "%s" ? ', warning, selectedFile)) then
 				shell.execute("rm -r "..path)
+					local prvTableLength = #col.mid.rows
 					table.remove(col.mid.rows, cursorIndex)
 					if #col.mid.rows == 0 then
 						moveLeft()
@@ -573,35 +625,68 @@ local function main()
 						goto continue
 					end
 					selectedFile = col.mid.rows[cursorIndex]
-					if cursorIndex == #col.mid.rows then
+					if cursorIndex == prvTableLength then
 						-- user just removed the last item in the list
+						cursorIndex = cursorIndex - 1
+						selectedFile = col.mid.rows[cursorIndex]
 						drawFilenameIndexed(col.mid, cursorIndex, true)
+						gpu.fill(col.mid.x, top + 1 + #col.mid.rows, col.mid.iw-2, 1, " ")
 					elseif #col.mid.rows < bottom-top-1 then
 						-- shift all the filenames up to overwrite the deleted file's slot
-						gpu.copy(col.mid.x, top+cursorIndex+1, col.mid.x+col.mid.iw, #col.mid.rows - cursorIndex+2, 0,-1)
+						gpu.copy(col.mid.x, top+cursorIndex+1, col.mid.x+col.mid.iw, #col.mid.rows - cursorIndex + 1, 0,-1)
 						drawFilenameIndexed(col.mid, cursorIndex, true)
+						gpu.fill(col.mid.x, top + 1 + #col.mid.rows, col.mid.iw-2, 1, " ")
 					else
 						redraw()
 					end
-					drawPreview(true)
+					drawPreview()
 				end
-			elseif c == "m" then
-				local prompt = "make file> "
-				term.setCursor(1,h-2)
-				term.write(prompt)
-				local fname = term.read({dobreak = false})
-				-- make directories to contain the new file, or simply make a new file in current directory
-				local filepath = cwd.."/"..fname
-			if fname:find("/") then
-					local ok, err = shell.execute(string.format("mkdir %s", fs.path(filepath)))
-					if not ok then setInfoText(err) end
-				end
-				local ok, err = shell.execute(string.format("touch %s", filepath))
-				if not ok then
-					setInfoText(err)
+			elseif c == "n" then
+				local menu = {[1]="file", [2]="directory", [3]="cancel"}
+				local rect = {x=col.mid.x-1,y=top, w=col.mid.iw-1, h=3}
+				frameStash()
+				local selection = runMenu(rect, menu)
+				frameRestore()
+				if selection and selection ~= 3 then
+					setInfoText("selected "..menu[selection])
+					if selection == 1 then
+						local prompt = "new file name> "
+						term.setCursor(1,h-2)
+						term.write(prompt)
+						local fname = io.read("*line")
+						local filepath = cwd.."/"..fname
+						if fname then
+							local ok, err = shell.execute(string.format("touch %s", filepath))
+							if ok then
+								table.insert(col.mid.rows, fname)
+								cursorIndex = #col.mid.rows
+								selectedFile = fname
+								drawColumn(col.mid)
+								drawFilenameIndexed(col.mid, cursorIndex, true)
+								drawPreview()
+							end
+						end
+					elseif selection == 2 then
+						local prompt = "new directory name> "
+						term.setCursor(1,h-2)
+						term.write(prompt)
+						local fname = io.read("*line")
+						local filepath = cwd.."/"..fname
+						if fname then
+							local ok, err = shell.execute(string.format("mkdir %s", filepath))
+							if ok then
+								if not fname:find("/$") then fname = fname.."/" end
+								table.insert(col.mid.rows, fname)
+								cursorIndex = #col.mid.rows
+								selectedFile = fname
+								drawColumn(col.mid)
+								drawFilenameIndexed(col.mid, cursorIndex, true)
+								drawPreview()
+							end
+						end
+					end
 				else
-					-- TODO: Only redraw affected parts of interface based on new file location
-					refresh()
+					setInfoText("cancelled new")
 				end
 			elseif c == "r" then
 				local prompt = string.format('rename "%s" to> ', selectedFile)
@@ -667,7 +752,7 @@ local function main()
 						else
 							drawFilenameIndexed(col.mid, prvcursorIndex)
 							drawFilename(col.mid, selectedFile, true)
-							drawPreview(false)
+							drawPreview()
 						end
 						found = f
 						break
