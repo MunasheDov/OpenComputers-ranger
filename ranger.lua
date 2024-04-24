@@ -422,6 +422,8 @@ end
 local function runMenu(r, m)
 	gpu.setForeground(color.plain)
 	drawBox(r)
+	local title = " New "
+	gpu.set(r.x+2, r.y, title)
 	local current = 1
 	while true do
 		for i,option in ipairs(m) do
@@ -441,10 +443,10 @@ local function runMenu(r, m)
 			return nil
 		else
 			local c = string.char(key)
-			if c == "k" then
-				if current > 1 then current = current - 1 end
-			elseif c == "j" then
-				if current < #m then current = current + 1 end
+			if c == "k" or code == keyboard.keys.up then
+				if current > 1 then current = current - 1 else current = #m end
+			elseif c == "j" or code == keyboard.keys.down then
+				if current < #m then current = current + 1 else current = 1 end
 			end
 			if code == keyboard.keys.enter then
 				return current
