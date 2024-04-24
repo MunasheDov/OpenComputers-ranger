@@ -274,10 +274,30 @@ local backbuffer = gpu.allocateBuffer(w, h)
 gpu.clear = function() gpu.fill(1,1,w,h," ") end
 gpu.clearLine = function(ln) gpu.fill(1,ln,w,1," ") end
 
+function drawOutlines()
+	local verticalLineChar = "│"
+	gpu.setForeground(color.border)
+	gpu.fill(col.left.iw-1, top+1, 1, bottom-top, verticalLineChar)
+	gpu.fill(col.mid.x + col.mid.iw-2, top+1, 1, bottom-top, verticalLineChar)
+
+	local horz = "─"
+	local Tchar = "┬"
+	local TcharI = "┴"
+	local lw = col.left.iw-2
+	local mw = col.mid.iw-2
+	local rw = col.right.iw+1
+	local topline = string.rep(horz, lw)..Tchar..string.rep(horz, mw)..Tchar..string.rep(horz, rw)
+	local bottomline = string.rep(horz, lw)..TcharI..string.rep(horz, mw)..TcharI..string.rep(horz, rw)
+	gpu.set(1,top, topline)
+	gpu.set(1,bottom, bottomline)
+end
+
 function redraw()
 	if backbuffer ~= 1 then error("backbuffer is invalid "..tostring(backbuffer)) end
 	gpu.setActiveBuffer(backbuffer)
 	gpu.clear()
+
+	drawOutlines()
 
 	local prevColor
 	for _,column in pairs(col) do
@@ -316,28 +336,6 @@ function redraw()
 	gpu.set(1,y, helpstring)
 	gpu.setForeground(color.plain, false)
 
-	if config.outlines then
-	-- draw outlines
-
-	-- top outlines
-	local verticalLineChar = "│"
-		gpu.setForeground(color.border)
-		gpu.fill(col.left.iw-1, top+1, 1, bottom-top, verticalLineChar)
-		gpu.fill(col.mid.x + col.mid.iw-2, top+1, 1, bottom-top, verticalLineChar)
-
-		local horizontalLineChar = "─"
-		gpu.fill(1, top, w, 1, horizontalLineChar)
-
-		local Tchar = "┬"
-		gpu.set(col.left.iw-1, top, Tchar)
-		gpu.set(col.mid.x + col.mid.iw-2, top, Tchar)
-
-		-- bottom outlines
-		gpu.fill(1, bottom, w, 1, horizontalLineChar)
-		local TcharInverted = "┴"
-		gpu.set(col.left.iw-1, bottom, TcharInverted)
-		gpu.set(col.mid.x + col.mid.iw-2, bottom, TcharInverted)
-	end
 
 	drawPreview(false)
 
@@ -348,6 +346,9 @@ end
 function refresh()
 	update()
 	redraw()
+	if config.outlines then
+		drawOutlines()
+	end
 end
 
 function confirmation(query)
@@ -396,7 +397,7 @@ while true do
 	setInfoText("")
 	selectedFile = col.mid.rows[cursorIndex]
 	if not selectedFile then cursorIndex = 1; selectedFile = col.mid.rows[cursorIndex] end
-	
+
 	if id == "interrupted" then
 		term.clear()
 		term.setCursor(1,1)
