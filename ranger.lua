@@ -143,6 +143,7 @@ local function clearInfoText()
 end
 
 local function drawFilenameIndexed(column, index, inverted)
+	if #column.rows == 0 then return end
 	if type(index) ~= "number" then error(debug.traceback().." non-number index passed to drawFilenameIndexed for column "..table.indexOf(col, column)) end
 	local filename = column.rows[index]
 	local y = top + index - (column.scrollY or 0)
@@ -188,6 +189,7 @@ local function drawColumn(column)
 end
 
 local function drawPreview()
+	if not selectedFile then return end
 	local previewHeight = bottom - top - 1
 	col.right.rows = {}
 	if not selectedFile then error("selectedFile is nil in drawPreview()") end
@@ -261,20 +263,23 @@ local function moveRight()
 	local cwd = shell.getWorkingDirectory()
 	local path = cwd.."/"..selectedFile
 	if not fs.isDirectory(path) then return end
-	local fileHasChild = false
-	for _ in fs.list(path) do fileHasChild = true; break end
-	if not fileHasChild then return end
 
 	col.left.rows = col.mid.rows
 	col.mid.rows = col.right.rows
 	col.right.rows = {}
 
 	parentFile = selectedFile
-	cursorIndex = clamp(1, cursorIndex, #col.mid.rows)
-	selectedFile = col.mid.rows[cursorIndex]
 
 	shell.setWorkingDirectory(path)
-	for f in fs.list(path) do table.insert(col.right.rows, f) end
+
+	if #col.mid.rows == 0 then
+		selectedFile = nil
+	else
+		cursorIndex = clamp(1, cursorIndex, #col.mid.rows)
+		selectedFile = col.mid.rows[cursorIndex]
+		for f in fs.list(path) do table.insert(col.right.rows, f) end
+	end
+
 	return true
 end
 
@@ -294,8 +299,11 @@ local function update()
 	if parentFile == "/" then col.left.rows = {"/"} end
 	col.mid.rows = {}
 	for f in fs.list(cwd) do table.insert(col.mid.rows, f) end
-	selectedFile = col.mid.rows[cursorIndex]
-	if not selectedFile then cursorIndex = 1; selectedFile = col.mid.rows[cursorIndex] end
+	if #col.mid.rows > 0 then
+		selectedFile = col.mid.rows[cursorIndex]
+	else
+		selectedFile = nil
+	end
 end
 
 
@@ -362,10 +370,14 @@ local function redraw()
 	drawFilename(col.left, parentFile, true)
 
 	if cursorIndex - col.mid.scrollY < bottom and cursorIndex > col.mid.scrollY then
-		drawFilename(col.mid, selectedFile, true)
+		if selectedFile then
+			drawFilename(col.mid, selectedFile, true)
+		end
 	end
 
-	drawPreview()
+	if selectedFile then
+		drawPreview()
+	end
 end
 
 local function refresh()
@@ -468,8 +480,6 @@ local function main()
 		::continue::
 		local id, keyboardAddress, character, code, playerName = event.pullMultiple("interrupted", "key_down", "touch", "scroll")
 		clearInfoText()
-		selectedFile = col.mid.rows[cursorIndex]
-		if not selectedFile then cursorIndex = 1; selectedFile = col.mid.rows[cursorIndex] end
 
 		if id == "interrupted" then
 			term.clear()
@@ -526,10 +536,12 @@ local function main()
 		elseif id == "key_down" then
 			local c = string.char(character)
 			local cwd = shell.getWorkingDirectory()
-			local path = cwd.."/"..selectedFile
+			local path = cwd.."/"..(selectedFile or "@no-selectedFile")
 			if c == "k" or code == keyboard.keys.up then
+				if not selectedFile then goto continue end
 				moveCursor(-1)
 			elseif c == "j" or code == keyboard.keys.down then
+				if not selectedFile then goto continue end
 				moveCursor(1)
 			elseif c == "h" or code == keyboard.keys.left then
 				if moveLeft() then
@@ -542,10 +554,11 @@ local function main()
 					end
 				end
 			elseif c == "l" or code == keyboard.keys.right then
-				if moveRight() then
+				if selectedFile and moveRight() then
 					redraw()
 				end
 			elseif code == keyboard.keys.home and cursorIndex ~= 1 then
+				if not selectedFile then goto continue end
 				local prvcursorIndex = cursorIndex
 				cursorIndex = 1
 				selectedFile = col.mid.rows[cursorIndex]
@@ -559,6 +572,7 @@ local function main()
 					drawPreview()
 				end
 			elseif code == keyboard.keys["end"] and cursorIndex ~= #col.mid.rows then
+				if not selectedFile then goto continue end
 				local prvcursorIndex = cursorIndex
 				cursorIndex = #col.mid.rows
 				selectedFile = col.mid.rows[cursorIndex]
@@ -572,6 +586,7 @@ local function main()
 					drawPreview()
 				end
 			elseif code == keyboard.keys.enter then
+				if not selectedFile then goto continue end
 				if fs.isDirectory(path) then
 					event.push("key_down", term.keyboard(), string.byte("l"))
 				elseif extension(selectedFile) == "lua" then
@@ -584,6 +599,7 @@ local function main()
 					event.push("key_down", term.keyboard(), string.byte("e"))
 				end
 			elseif c == "a" then
+				if not selectedFile then goto continue end
 				if extension(selectedFile) == "lua" then
 					local args = ""
 					if c == 'a' then
@@ -604,11 +620,13 @@ local function main()
 					refresh()
 				end
 			elseif c == "e" then
+				if not selectedFile then goto continue end
 				frameStash()
 				shell.execute("edit "..path)
 				frameRestore()
 				drawPreview()
 			elseif code == keyboard.keys.delete then
+				if not selectedFile then goto continue end
 				local warning
 				if fs.isDirectory(path) then
 					warning = "recursively delete directory!?"
@@ -689,6 +707,7 @@ local function main()
 					setInfoText("cancelled new")
 				end
 			elseif c == "r" then
+				if not selectedFile then goto continue end
 				local prompt = string.format('rename "%s" to> ', selectedFile)
 				term.setCursor(1,h-2)
 				term.write(prompt)
@@ -718,7 +737,7 @@ local function main()
 				local prompt = string.format('%s # ', shell.getWorkingDirectory())
 				term.setCursor(1,h-2)
 				term.write(prompt)
-				local command = term.read({[1]=selectedFile})
+				local command = term.read({[1]=(selectedFile or "")})
 			if command == false then
 					setInfoText("cancelled shell command")
 					goto continue
@@ -728,6 +747,7 @@ local function main()
 			event.pull("key_down")
 				refresh()
 			elseif c == "g" then
+				if not selectedFile then goto continue end
 				local prompt = "goto> "
 				term.setCursor(1,h-2)
 				term.write(prompt)
@@ -762,6 +782,7 @@ local function main()
 					setInfoText(string.format('could not find file containing "%s"', search))
 				end
 			elseif c == "y" then
+				if not selectedFile then goto continue end
 				setInfoText(string.format('copied path of "%s"', selectedFile))
 				clipboardBuffer = shell.getWorkingDirectory().."/"..selectedFile
 			elseif c == "p" then
