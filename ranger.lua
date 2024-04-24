@@ -87,6 +87,27 @@ local function setColorByFileType(fname)
 	end
 end
 
+local function getFiletypeColor(filename)
+	if filename == nil then error(debug.traceback().." received nil filename") end
+	if filename:find("/$") then
+		return color.dir
+	elseif extension(filename) == "lua" then
+		return color.lua
+	else
+		return color.plain
+	end
+end
+
+function fitStringToWidth(width, filename)
+	assert(width > 0, string.format("%s: width must be a natural number, not %d", debug.traceback(), width))
+	local space = width - #filename
+	if space < 0 then
+		return filename:sub(1, space-2) .. "~"
+	else
+		return filename .. string.rep(" ", space)
+	end
+end
+
 local col = {}
 col.left = {x = 1, iw = math.floor(w/6)}
 col.mid = {x = col.left.x + col.left.iw - 1, iw = math.floor(w/3)}
@@ -172,21 +193,20 @@ function moveLeft()
 		setInfoText("already root")
 		return
 	end
-	
+
 	selectedFile = fs.name(cwd).."/"
 	logvar("selectedFile", selectedFile)
-	--log("moveLeft: selectedFile " ..selectedFile)
 	local parentDirectory = shell.resolve(cwd.."/..")
 	logvar("parentDirectory", parentDirectory)
-	
+
 	shell.setWorkingDirectory(parentDirectory)
 	local grandparentDirectory = shell.resolve(parentDirectory.."/..")
 	logvar("grandparentDirectory", grandparentDirectory)
-	
+
 	cursorIndex = table.indexOf(col.left.rows, selectedFile)
 	logvar("cursorIndex", cursorIndex)
 	col.mid.scrollY = 0
-	
+
 	col.right.rows = col.mid.rows
 	col.mid.rows = col.left.rows
 	col.left.rows = {}
@@ -212,17 +232,17 @@ function moveRight()
 	local path = cwd.."/"..selectedFile
 	if not fs.isDirectory(path) then return end
 	local fileHasChild = false
-	for f in fs.list(path) do fileHasChild = true; break end
+	for _ in fs.list(path) do fileHasChild = true; break end
 	if not fileHasChild then return end
-	
+
 	col.left.rows = col.mid.rows
 	col.mid.rows = col.right.rows
 	col.right.rows = {}
-	
+
 	parentFile = selectedFile
 	cursorIndex = clamp(1, cursorIndex, #col.mid.rows)
 	selectedFile = col.mid.rows[cursorIndex]
-	
+
 	shell.setWorkingDirectory(path)
 	for f in fs.list(path) do table.insert(col.right.rows, f) end
 	return true
@@ -233,7 +253,6 @@ function update()
 	col.left.rows = {}
 	local leftpath = shell.resolve(cwd.."/..")
 	for f in fs.list(leftpath) do table.insert(col.left.rows, f) end
-	
 	local seg = fs.segments(cwd)
 	if #seg == 0 then
 		parentFile = "/"
@@ -243,9 +262,7 @@ function update()
 		parentFile = seg[1] .. "/"
 	end
 	if parentFile == "/" then col.left.rows = {"/"} end
-	
-	col.mid.rows = {} -- prv = {}
-	
+	col.mid.rows = {}
 	for f in fs.list(cwd) do table.insert(col.mid.rows, f) end
 	selectedFile = col.mid.rows[cursorIndex]
 	if not selectedFile then cursorIndex = 1; selectedFile = col.mid.rows[cursorIndex] end
@@ -262,54 +279,68 @@ function redraw()
 	gpu.setActiveBuffer(backbuffer)
 	gpu.clear()
 
-	for i=1,math.min(#col.left.rows, bottom-top-1) do
-		drawFilenameIndexed(col.left, i)
+	local prevColor
+	for _,column in pairs(col) do
+		if type(column) == "table" then
+			local x,y = column.x, top+1
+			local index = column.scrollY
+			local rows = column.rows
+			gpu.fill(column.x,y, column.iw-2, bottom-top-1, " ")
+			for i=1, math.min(#rows-column.scrollY, bottom-top-1) do
+				local filename = rows[index+i]
+				local nextColor = getFiletypeColor(filename)
+				if nextColor ~= prevColor then gpu.setForeground(nextColor, false) end
+				filename = fitStringToWidth(column.iw-2, " "..filename)
+				gpu.set(x, y, filename)
+				y = y + 1
+			end
+		end
 	end
-	if parentFile == nil then error(debug.traceback().. " parentFile is nil in redraw") end
+
+
+	assert(parentFile, debug.traceback().. " parentFile is nil")
 	drawFilename(col.left, parentFile, true)
-	for i=1+col.mid.scrollY,math.min(#col.mid.rows, bottom-top+col.mid.scrollY) do
-		drawFilenameIndexed(col.mid, i)
+
+	if cursorIndex - col.mid.scrollY < bottom and cursorIndex > col.mid.scrollY then
+		drawFilename(col.mid, selectedFile, true)
 	end
-	drawFilename(col.mid, selectedFile, true)
-	drawPreview(true)
-	
+
 	gpu.clearLine(1)
 	gpu.setForeground(color.currentDirectory)
 	gpu.set(1,1, shell.getWorkingDirectory())
 	gpu.setForeground(color.plain)
-	local dateString = os.date()
-	gpu.set(w-#dateString-1, 1, dateString)
-	
-	
+
 	local y = h
 	if #helpstring > w then y = y - 1 end
 	gpu.setForeground(color.border, false)
 	gpu.set(1,y, helpstring)
 	gpu.setForeground(color.plain, false)
-	
+
 	if config.outlines then
 	-- draw outlines
-	
+
 	-- top outlines
 	local verticalLineChar = "│"
 		gpu.setForeground(color.border)
 		gpu.fill(col.left.iw-1, top+1, 1, bottom-top, verticalLineChar)
 		gpu.fill(col.mid.x + col.mid.iw-2, top+1, 1, bottom-top, verticalLineChar)
-		
+
 		local horizontalLineChar = "─"
 		gpu.fill(1, top, w, 1, horizontalLineChar)
-		
+
 		local Tchar = "┬"
 		gpu.set(col.left.iw-1, top, Tchar)
 		gpu.set(col.mid.x + col.mid.iw-2, top, Tchar)
-		
+
 		-- bottom outlines
 		gpu.fill(1, bottom, w, 1, horizontalLineChar)
 		local TcharInverted = "┴"
 		gpu.set(col.left.iw-1, bottom, TcharInverted)
 		gpu.set(col.mid.x + col.mid.iw-2, bottom, TcharInverted)
 	end
-	
+
+	drawPreview(false)
+
 	gpu.bitblt(0, 1,1,w,h, backbuffer, 1,1)
 	gpu.setActiveBuffer(0)
 end
@@ -358,40 +389,6 @@ function frameRestore()
 	gpu.bitblt(screenBuffer, 1,1,w,h, backbuffer, 1,1)
 end
 
-if config.timing then
-	local ISEC_TO_TICKS = 1000/60/60
-	p_refresh = refresh
-	refresh = function(...)
-		local t = os.time()
-		p_refresh(...)
-		local dt = os.difftime(os.time(), t) * ISEC_TO_TICKS
-		setInfoText(string.format("refresh: %.0f ticks", dt))
-	end
-
-	p_moveCursor = moveCursor
-	moveCursor = function(...)
-		local t = os.time()
-		p_moveCursor(...)
-		local dt = os.difftime(os.time(), t) * ISEC_TO_TICKS
-		setInfoText(string.format("moveCursor: %.0f ticks", dt))
-	end
-
-	p_moveLeft = moveLeft
-	moveLeft = function(...)
-		local t = os.time()
-		p_moveLeft(...)
-		local dt = os.difftime(os.time(), t) * ISEC_TO_TICKS
-		setInfoText(string.format("moveLeft: %.0f ticks", dt))
-	end
-
-	p_moveRight = moveRight
-	moveRight = function(...)
-		local t = os.time()
-		p_moveRight(...)
-		local dt = os.difftime(os.time(), t) * ISEC_TO_TICKS
-		setInfoText(string.format("moveRight: %.0f ticks", dt))
-	end
-end
 refresh()
 while true do
 	::continue::
@@ -461,17 +458,19 @@ while true do
 		elseif c == "j" or code == keyboard.keys.down then
 			moveCursor(1)
 		elseif c == "h" or code == keyboard.keys.left then
-			moveLeft()
-			local ok, err = pcall(redraw)
-			if not ok then
-				gpu.setActiveBuffer(0)
-				term.clear()
-				log(err)
-				os.exit()
+			if moveLeft() then
+				local ok, err = pcall(redraw)
+				if not ok then
+					gpu.setActiveBuffer(0)
+					term.clear()
+					log(err)
+					os.exit()
+				end
 			end
 		elseif c == "l" or code == keyboard.keys.right then
-			moveRight()
-			redraw()
+			if moveRight() then
+				redraw()
+			end
 		elseif code == keyboard.keys.home and cursorIndex ~= 1 then
 			--moveCursor(-cursorIndex+1)
 			local prvcursorIndex = cursorIndex
