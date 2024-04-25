@@ -11,7 +11,17 @@ local gpu = term.gpu()
 
 local backbuffer
 
-local helpstring = "[n]ew, [r]ename, [y/p] yank/paste, [e]dit, run [a]rgs, home [/], [g]oto, [s]hell"
+local helplist = {
+	"[n]ew    - create new file or folder in current directory",
+	"[r]ename - rename selected item",
+	"[y]ank   - copy path of selected item",
+	"[p]aste  - paste copy of previously yanked path",
+	"[e]dit   - launch the default editor with the currently selected file",
+	"[a]rgs   - run current selection with arguments",
+	"[/]      - jump to home directory",
+	"[g]oto   - fuzzy search current directory for items containing input",
+	"[s]hell  - run any shell command",
+}
 
 local config = {
 	outlines = true,
@@ -355,14 +365,6 @@ local function drawPath()
 	gpu.setForeground(color.plain)
 end
 
-local function drawHelp()
-	local y = h
-	if #helpstring > w then y = y - 1 end
-	gpu.setForeground(color.border, false)
-	gpu.set(1,y, helpstring)
-	gpu.setForeground(color.plain, false)
-end
-
 local function redraw()
 	drawColumn(col.left)
 	drawColumn(col.mid)
@@ -387,7 +389,11 @@ local function refresh()
 	end
 	redraw()
 	drawPath()
-	drawHelp()
+
+	local helpkey = "Help [q]"
+	gpu.setForeground(color.border)
+	term.setCursor(w-#helpkey, h)
+	term.write(helpkey)
 end
 
 local function confirmation(query)
@@ -621,6 +627,28 @@ local function main()
 					shell.setWorkingDirectory("/home")
 					refresh()
 				end
+			elseif c == "q" then
+				-- draw help popup box
+
+				-- I can't decide on a good colorscheme here. Having a non-black bg
+				-- helps make it read as a popup window, but doesn't match the theme.
+				frameStash()
+				gpu.setForeground(color.plain)
+				gpu.setBackground(color.border)
+				local rect = {w=w-8, h=#helplist}
+				rect.x = w / 2 - rect.w / 2 + 1
+				rect.y = h / 2 - rect.h / 2 - 4
+				gpu.fill(rect.x, rect.y, rect.w+1, rect.h+1, " ")
+				drawBox(rect)
+				gpu.set(rect.x + 4, rect.y, " Help ")
+				for i,v in ipairs(helplist) do
+					term.setCursor(rect.x+1, rect.y+i)
+					term.write(v)
+				end
+				event.pull("key_down")
+				gpu.setForeground(color.plain)
+				gpu.setBackground(color.bg)
+				frameRestore()
 			elseif c == "e" then
 				if not selectedFile then goto continue end
 				frameStash()
