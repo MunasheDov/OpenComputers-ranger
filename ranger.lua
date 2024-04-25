@@ -695,46 +695,36 @@ local function main()
 				frameStash()
 				local selection = runMenu(rect, menu)
 				frameRestore()
-				if selection and selection ~= 3 then
-					setInfoText("selected "..menu[selection])
-					if selection == 1 then
-						local prompt = "new file name> "
-						term.setCursor(1,h-2)
-						term.write(prompt)
-						local fname = io.read("*line")
-						local filepath = cwd.."/"..fname
-						if fname then
-							local ok, err = shell.execute(string.format("touch %s", filepath))
-							if ok then
-								table.insert(col.mid.rows, fname)
-								cursorIndex = #col.mid.rows
-								selectedFile = fname
-								drawColumn(col.mid)
-								drawFilenameIndexed(col.mid, cursorIndex, true)
-								drawPreview()
-							end
+				if selection == 1 or selection == 2 then
+					local command = {[1] = "touch", [2] = "mkdir"}
+					local prompt = "name> "
+					term.setCursor(1,h-2)
+					term.clearLine()
+					term.write(prompt)
+					local fname = io.read("*line")
+					if fname and #fname > 0 then
+						if selection == 1 then
+							if fname:find("/$") then fname = fname:sub(1, -2) end
+						else
+							if not fname:find("/$") then fname = fname.."/" end
 						end
-					elseif selection == 2 then
-						local prompt = "new directory name> "
-						term.setCursor(1,h-2)
-						term.write(prompt)
-						local fname = io.read("*line")
 						local filepath = cwd.."/"..fname
-						if fname then
-							local ok, err = shell.execute(string.format("mkdir %s", filepath))
-							if ok then
-								if not fname:find("/$") then fname = fname.."/" end
-								table.insert(col.mid.rows, fname)
-								cursorIndex = #col.mid.rows
-								selectedFile = fname
-								drawColumn(col.mid)
-								drawFilenameIndexed(col.mid, cursorIndex, true)
-								drawPreview()
-							end
+						local ok, err = shell.execute(string.format("%s %s", command[selection], filepath))
+						if ok then
+							table.insert(col.mid.rows, fname)
+							cursorIndex = #col.mid.rows
+							selectedFile = fname
+							drawColumn(col.mid)
+							drawFilenameIndexed(col.mid, cursorIndex, true)
+							drawPreview()
+						else
+							setInfoText(err)
 						end
+					else
+						setInfoText("cancelled")
 					end
 				else
-					setInfoText("cancelled new")
+					setInfoText("cancelled")
 				end
 			elseif c == "r" then
 				if not selectedFile then goto continue end
